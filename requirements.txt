@@ -8,3 +8,8 @@ six
 tensorboard
 tensorboardX
 tqdm
+k3d
+matplotlib
+captum
+plotly
+nbformat

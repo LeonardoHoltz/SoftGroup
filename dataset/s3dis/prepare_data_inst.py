@@ -61,7 +61,7 @@ def read_s3dis_format(area_id: str,
     room_label = ROOM_TYPES[room_type]
     room_dir = osp.join(data_root, area_id, room_name)
     raw_path = osp.join(room_dir, f'{room_name}.txt')
-
+    print(raw_path)
     room_ver = pd.read_csv(raw_path, sep=' ', header=None).values
     xyz = np.ascontiguousarray(room_ver[:, 0:3], dtype='float32')
     rgb = np.ascontiguousarray(room_ver[:, 3:6], dtype='uint8')
@@ -150,8 +150,8 @@ if __name__ == '__main__':
         # get the room name list for each area
         room_name_list = os.listdir(area_dir)
         try:
-            room_name_list.remove(f'{area_id}_alignmentAngle.txt')
             room_name_list.remove('.DS_Store')
+            room_name_list.remove(f'{area_id}_alignmentAngle.txt')
         except:  # noqa
             pass
         for room_name in room_name_list:

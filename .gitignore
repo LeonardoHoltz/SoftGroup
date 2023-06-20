@@ -64,6 +64,7 @@ dist/
 *.tsv
 *.npy
 *.zip
+*.rar
 dataset/scannetv2/scans
 dataset/scannetv2/scans_test
 dataset/scannetv2/train
@@ -80,3 +81,5 @@ dataset/s3dis/Stanford3dDataset_v1.2
 dataset/stpls3d/train
 dataset/stpls3d/val
 dataset/stpls3d/Synthetic_v3_InstanceSegmentation
+
+models/softgroup_s3dis_spconv2.pth
