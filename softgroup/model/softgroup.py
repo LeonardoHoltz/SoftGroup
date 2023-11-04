@@ -102,27 +102,33 @@ class SoftGroup(nn.Module):
             for m in mod.modules():
                 if isinstance(m, nn.BatchNorm1d):
                     m.eval()
-
+    
     @cuda_cast
     def set_params(self, batch_idxs, voxel_coords, p2v_map, v2p_map, coords_float, feats,
-                      semantic_labels, instance_labels, instance_pointnum, instance_cls,
-                      pt_offset_labels, spatial_shape, batch_size, **kwargs):
+                    semantic_labels, instance_labels, instance_pointnum, instance_cls,
+                    pt_offset_labels, spatial_shape, batch_size, scan_ids, **kwargs):
+        self.batch_idxs=batch_idxs
         self.voxel_coords=voxel_coords
         self.batch_size=batch_size
         self.spatial_shape=spatial_shape
         self.p2v_map = p2v_map
         self.v2p_map = v2p_map
+        self.semantic_labels=semantic_labels
+        self.instance_labels=instance_labels
+        self.instance_pointnum=instance_pointnum
+        self.instance_cls=instance_cls
+        self.pt_offset_labels=pt_offset_labels
+        self.scan_ids=scan_ids
 
     def forward(self, coords_float, feats):
-        # if return_loss:
-        #     return self.forward_train(**batch)
-        # else:
-        #     return self.forward_test(**batch)
-        return self.forward_train(coords_float, feats)
-
+        #if return_loss:
+        #    return self.forward_train(**batch)
+        #else:
+        #    return self.forward_test(**batch)
+        return self.forward_test(coords_float, feats)
 
     @cuda_cast
-    def forward_train(self, feats, coords_float):
+    def forward_train(self, coords_float, feats):
         losses = {}
         if self.with_coords:
             feats = torch.cat((feats, coords_float), 1)
@@ -130,17 +136,15 @@ class SoftGroup(nn.Module):
         input = spconv.SparseConvTensor(voxel_feats, self.voxel_coords.int(), self.spatial_shape, self.batch_size)
         semantic_scores, pt_offsets, output_feats = self.forward_backbone(input, self.v2p_map)
 
-        return semantic_scores.softmax(dim=-1)
-
         # point wise losses
-        point_wise_loss = self.point_wise_loss(semantic_scores, pt_offsets, semantic_labels,
-                                               instance_labels, pt_offset_labels)
+        point_wise_loss = self.point_wise_loss(semantic_scores, pt_offsets, self.semantic_labels,
+                                               self.instance_labels, self.pt_offset_labels)
         losses.update(point_wise_loss)
 
         # instance losses
         if not self.semantic_only:
             proposals_idx, proposals_offset = self.forward_grouping(semantic_scores, pt_offsets,
-                                                                    batch_idxs, coords_float,
+                                                                    self.batch_idxs, coords_float,
                                                                     self.grouping_cfg)
             if proposals_offset.shape[0] > self.train_cfg.max_proposal_num:
                 proposals_offset = proposals_offset[:self.train_cfg.max_proposal_num + 1]
@@ -156,8 +160,8 @@ class SoftGroup(nn.Module):
             instance_batch_idxs, cls_scores, iou_scores, mask_scores = self.forward_instance(
                 inst_feats, inst_map)
             instance_loss = self.instance_loss(cls_scores, mask_scores, iou_scores, proposals_idx,
-                                               proposals_offset, instance_labels, instance_pointnum,
-                                               instance_cls, instance_batch_idxs)
+                                               proposals_offset, self.instance_labels, self.instance_pointnum,
+                                               self.instance_cls, instance_batch_idxs)
             losses.update(instance_loss)
         return self.parse_losses(losses)
 
@@ -309,26 +313,23 @@ class SoftGroup(nn.Module):
         return loss, log_vars
 
     @cuda_cast
-    def forward_test(self, batch_idxs, voxel_coords, p2v_map, v2p_map, coords_float, feats,
-                     semantic_labels, instance_labels, pt_offset_labels, spatial_shape, batch_size,
-                     scan_ids, **kwargs):
+    def forward_test(self, coords_float, feats):
         color_feats = feats
         if self.with_coords:
             feats = torch.cat((feats, coords_float), 1)
-        voxel_feats = voxelization(feats, p2v_map)
-        input = spconv.SparseConvTensor(voxel_feats, voxel_coords.int(), spatial_shape, batch_size)
-
+        voxel_feats = voxelization(feats, self.p2v_map)
+        input = spconv.SparseConvTensor(voxel_feats, self.voxel_coords.int(), self.spatial_shape, self.batch_size)
         # lvl_fusion directly use output point as level 1 for pyramid map for fast inference
         lvl_fusion = getattr(self.test_cfg, 'lvl_fusion', False)
         semantic_scores, pt_offsets, output_feats = self.forward_backbone(
-            input, v2p_map, x4_split=self.test_cfg.x4_split, lvl_fusion=lvl_fusion)
+            input, self.v2p_map, x4_split=self.test_cfg.x4_split, lvl_fusion=lvl_fusion)
         if self.test_cfg.x4_split:
             coords_float = self.merge_4_parts(coords_float)
-            semantic_labels = self.merge_4_parts(semantic_labels)
-            instance_labels = self.merge_4_parts(instance_labels)
-            pt_offset_labels = self.merge_4_parts(pt_offset_labels)
+            semantic_labels = self.merge_4_parts(self.semantic_labels)
+            instance_labels = self.merge_4_parts(self.instance_labels)
+            pt_offset_labels = self.merge_4_parts(self.pt_offset_labels)
         semantic_preds = semantic_scores.max(1)[1]
-        ret = dict(scan_id=scan_ids[0])
+        ret = dict(scan_id=self.scan_ids[0])
         if 'semantic' in self.test_cfg.eval_tasks or 'panoptic' in self.test_cfg.eval_tasks:
             ret.update(
                 dict(
@@ -337,13 +338,13 @@ class SoftGroup(nn.Module):
         if 'semantic' in self.test_cfg.eval_tasks:
             point_wise_results = self.get_point_wise_results(coords_float, color_feats,
                                                              semantic_preds, pt_offsets,
-                                                             pt_offset_labels, v2p_map, lvl_fusion)
+                                                             pt_offset_labels, self.v2p_map, lvl_fusion)
             ret.update(point_wise_results)
         if not self.semantic_only:
             if 'instance' in self.test_cfg.eval_tasks or 'panoptic' in self.test_cfg.eval_tasks:
                 if lvl_fusion:
                     batch_idxs = input.indices[:, 0].int()
-                    coords_float = voxelization(coords_float, p2v_map)
+                    coords_float = voxelization(coords_float, self.p2v_map)
                 proposals_idx, proposals_offset = self.forward_grouping(
                     semantic_scores,
                     pt_offsets,
@@ -356,13 +357,13 @@ class SoftGroup(nn.Module):
                                                                   **self.instance_voxel_cfg)
                 _, cls_scores, iou_scores, mask_scores = self.forward_instance(inst_feats, inst_map)
                 pred_instances = self.get_instances(
-                    scan_ids[0],
+                    self.scan_ids[0],
                     proposals_idx,
                     semantic_scores,
                     cls_scores,
                     iou_scores,
                     mask_scores,
-                    v2p_map=v2p_map,
+                    v2p_map=self.v2p_map,
                     lvl_fusion=lvl_fusion)
             if 'instance' in self.test_cfg.eval_tasks:
                 gt_instances = self.get_gt_instances(semantic_labels, instance_labels)
@@ -370,6 +371,7 @@ class SoftGroup(nn.Module):
             if 'panoptic' in self.test_cfg.eval_tasks:
                 panoptic_preds = self.panoptic_fusion(semantic_preds.cpu().numpy(), pred_instances)
                 ret.update(panoptic_preds=panoptic_preds)
+        ret.update(semantic_scores=semantic_scores)
         return ret
 
     def forward_backbone(self, input, input_map, x4_split=False, lvl_fusion=False):
@@ -540,11 +542,11 @@ class SoftGroup(nn.Module):
             semantic_preds = semantic_preds[v2p_map.long()]
             offset_preds = offset_preds[v2p_map.long()]
         return dict(
-            coords_float=coords_float.cpu().numpy(),
-            color_feats=color_feats.cpu().numpy(),
-            semantic_preds=semantic_preds.cpu().numpy(),
-            offset_preds=offset_preds.cpu().numpy(),
-            offset_labels=offset_labels.cpu().numpy())
+            coords_float=coords_float.cpu(),
+            color_feats=color_feats.cpu(),
+            semantic_preds=semantic_preds.cpu(),
+            offset_preds=offset_preds.cpu(),
+            offset_labels=offset_labels.cpu())
 
     @force_fp32(apply_to=('semantic_scores', 'cls_scores', 'iou_scores', 'mask_scores'))
     def get_instances(self,

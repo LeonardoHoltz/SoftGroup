@@ -83,3 +83,6 @@ dataset/stpls3d/val
 dataset/stpls3d/Synthetic_v3_InstanceSegmentation
 
 models/softgroup_s3dis_spconv2.pth
+
+# backup
+softgroup_bk/
