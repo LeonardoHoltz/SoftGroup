@@ -4,7 +4,7 @@ model:
   semantic_classes: 13
   instance_classes: 13
   sem2ins_classes: [0, 1]
-  semantic_only: True
+  semantic_only: False
   ignore_label: -100
   grouping_cfg:
     score_thr: 0.2

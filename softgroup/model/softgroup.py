@@ -343,12 +343,12 @@ class SoftGroup(nn.Module):
         if not self.semantic_only:
             if 'instance' in self.test_cfg.eval_tasks or 'panoptic' in self.test_cfg.eval_tasks:
                 if lvl_fusion:
-                    batch_idxs = input.indices[:, 0].int()
+                    self.batch_idxs = input.indices[:, 0].int()
                     coords_float = voxelization(coords_float, self.p2v_map)
                 proposals_idx, proposals_offset = self.forward_grouping(
                     semantic_scores,
                     pt_offsets,
-                    batch_idxs,
+                    self.batch_idxs,
                     coords_float,
                     self.grouping_cfg,
                     lvl_fusion=lvl_fusion)
