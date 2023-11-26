@@ -602,9 +602,9 @@ class SoftGroup(nn.Module):
             cls_pred_list.append(cls_pred.cpu())
             score_pred_list.append(score_pred.cpu())
             mask_pred_list.append(mask_pred.cpu())
-        cls_pred = torch.cat(cls_pred_list).numpy()
-        score_pred = torch.cat(score_pred_list).numpy()
-        mask_pred = torch.cat(mask_pred_list).numpy()
+        cls_pred = torch.cat(cls_pred_list).detach().numpy()
+        score_pred = torch.cat(score_pred_list).detach().numpy()
+        mask_pred = torch.cat(mask_pred_list).detach().numpy()
 
         instances = []
         for i in range(cls_pred.shape[0]):
